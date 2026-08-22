@@ -215,6 +215,10 @@ label.fld{display:flex;flex-direction:column;gap:5px;font-size:11px;letter-spaci
 .bandbtn.on.pace{border-color:var(--cyan);color:#c8fbff;box-shadow:var(--glow-cyan);background:rgba(62,240,255,.14)}
 .bandbtn:hover{color:var(--text);border-color:var(--dim)}
 .bandbtn.on{border-color:var(--violet);color:#d9c8ff;box-shadow:0 0 10px rgba(155,107,255,.5);background:rgba(155,107,255,.16)}
+/* both selected-state colours above are pale, tuned for a dark button. On the paper
+   theme the button is cream, so they must come from the theme instead. */
+body[data-bg="paper"] .bandbtn.on.pace{color:var(--cyan);background:rgba(11,111,128,.10)}
+body[data-bg="paper"] .bandbtn.on{color:var(--violet);background:rgba(84,57,158,.10)}
 .bandbtn small{display:block;font-size:8px;letter-spacing:.1em;opacity:.7}
 .bandnote{font-size:11.5px;color:var(--dim);margin-top:8px;text-align:center}
 
@@ -1859,7 +1863,34 @@ const REBUILD = [
   P('The final draft was reviewed by two teachers.',       'Two teachers reviewed the final draft.',      2, [8,10], 3),
   P('The proposal was defended by the lead researcher.',   'The lead researcher defended the proposal.',  3, [9,10], 3),
   P('The article was retracted by the journal.',           'The journal retracted the article.',          2, [9,10], 3),
-  P('The alibi was contradicted by security footage.',     'Security footage contradicted the alibi.',    2, [9,10], 3)
+  P('The alibi was contradicted by security footage.',     'Security footage contradicted the alibi.',    2, [9,10], 3),
+
+  /* ---- tier 4: formal register, multi-word subjects ---- */
+  P('The proposal was rejected by the review board.',
+    'The review board rejected the proposal.',            3, [9,10], 4),
+  P('The funding request was denied by the city council.',
+    'The city council denied the funding request.',       3, [9,10], 4),
+  P('The safety protocol was revised by the district committee.',
+    'The district committee revised the safety protocol.', 3, [9,10], 4),
+  P('The manuscript was edited by a freelance copyeditor.',
+    'A freelance copyeditor edited the manuscript.',      3, [9,10], 4),
+  P('The wetland was purchased by a conservation trust.',
+    'A conservation trust purchased the wetland.',        3, [9,10], 4),
+
+  /* ---- tier 5: the longest subjects in the game ---- */
+  P('The original recordings were digitized by a team of student volunteers.',
+    'A team of student volunteers digitized the original recordings.',   5, [10,10], 5),
+  P('The disputed boundary was redrawn by an international commission.',
+    'An international commission redrew the disputed boundary.',         3, [10,10], 5),
+  P('The abandoned rail line was converted by a group of local architects.',
+    'A group of local architects converted the abandoned rail line.',    5, [10,10], 5),
+  P('The water samples were analyzed by two independent laboratories.',
+    'Two independent laboratories analyzed the water samples.',          3, [10,10], 5),
+  /* irregular verbs, so the participle really does have to change on the way across */
+  P('The winning design was chosen by a panel of alumni.',
+    'A panel of alumni chose the winning design.',                       4, [10,10], 5),
+  P('The safety warning was overridden by the night supervisor.',
+    'The night supervisor overrode the safety warning.',                 3, [10,10], 5),
 ];
 
 /* ---------------- CLASSIFY (Zombie Test) ---------------- */
@@ -2170,14 +2201,34 @@ const JUDGMENT = [
   J('Science lab report', 'You are writing the procedure section of a chemistry lab.',
     'I poured the acid into the flask and then I heated it.',
     'The acid was poured into the flask and heated.',
-    1, 'Passive wins. Lab procedure is written so that anyone can repeat it. The steps matter; which student held the beaker does not. This is passive voice doing its real job.', [8,10], 4, 'method')
+    1, 'Passive wins. Lab procedure is written so that anyone can repeat it. The steps matter; which student held the beaker does not. This is passive voice doing its real job.', [8,10], 4, 'method'),
+
+  /* ---- tier 5: the judgment is genuinely close, and the reason carries it ---- */
+  J('Journal abstract', 'You are writing the methods line of a paper submitted for publication.',
+    'Samples were incubated at body temperature for twelve hours.',
+    'We incubated samples at body temperature for twelve hours.',
+    0, 'Passive wins, but narrowly. Many journals now accept an active &ldquo;we&rdquo;. In a methods section, though, the procedure is the subject and the researchers are interchangeable &mdash; a reader needs to repeat the steps, not to know whose hands were on the equipment.',
+    [10,10], 5, 'method'),
+  J('Investigative feature', 'You are writing the paragraph that establishes responsibility for a chemical spill.',
+    'Waste was released into the river for nine months.',
+    'The plant released waste into the river for nine months.',
+    1, 'Active wins, and this is the sentence the whole investigation exists for. The passive version reports that a spill happened; the active version names the party that caused it. That difference is what separates journalism from a weather report.',
+    [10,10], 5, 'blame'),
+  J('Short story opening', 'You are writing the first line of a mystery.',
+    'Someone had moved the body before dawn.',
+    'The body had been moved before dawn.',
+    1, 'Passive wins. &ldquo;Someone&rdquo; is a placeholder that tells the reader nothing while pretending to. The passive leaves the agent genuinely absent, and that absence is the hook &mdash; the not-knowing is the reason to read the second line.',
+    [10,10], 5, 'suspense')
 ];
 
 /* verb task — pick the right verb form. Past tense drives active voice;
    the past participle is what passive voice needs after "to be". This is the
    single most common mechanical failure, so it gets its own task type. */
-function V(base, past, part, frame, want, bands, tier){
-  return { kind:'verb', base:base, past:past, part:part, frame:frame, want:want, bands:bands, tier:tier };
+function V(base, past, part, frame, want, bands, tier, ing){
+  // `ing` is optional: ingForm() cannot derive forms that need a doubled
+  // consonant (forbid -> forbidding), so those must be supplied explicitly
+  return { kind:'verb', base:base, past:past, part:part, frame:frame, want:want,
+           bands:bands, tier:tier, ing:ing || '' };
 }
 /* frame uses ___ for the blank. want is 'past' (active) or 'part' (passive). */
 const VERBS = [
@@ -2212,7 +2263,23 @@ const VERBS = [
   V('forsake','forsook','forsaken','The council ___ its own policy.',   'past', [9,10], 3),
   V('forsake','forsook','forsaken','The policy was ___ within a year.', 'part', [9,10], 3),
   V('undertake','undertook','undertaken','The team ___ a two-year study.','past',[9,10], 3),
-  V('undertake','undertook','undertaken','A two-year study was ___ by the team.','part',[9,10], 3)
+  V('undertake','undertook','undertaken','A two-year study was ___ by the team.','part',[9,10], 3),
+
+  /* ---- tier 4 ---- */
+  V('withdraw','withdrew','withdrawn','The senator ___ the amendment.',            'past', [9,10], 4),
+  V('withdraw','withdrew','withdrawn','The amendment was ___ by the senator.',     'part', [9,10], 4),
+  V('tear','tore','torn',             'The storm ___ the awning.',                 'past', [9,10], 4),
+  V('tear','tore','torn',             'The awning was ___ by the storm.',          'part', [9,10], 4),
+  V('swear','swore','sworn',          'Every recruit ___ the oath.',               'past', [9,10], 4),
+  V('swear','swore','sworn',          'The oath was ___ by every recruit.',        'part', [9,10], 4),
+
+  /* ---- tier 5 ---- */
+  V('oversee','oversaw','overseen',   'The architect ___ the renovation.',         'past', [10,10], 5),
+  V('oversee','oversaw','overseen',   'The renovation was ___ by the architect.',  'part', [10,10], 5),
+  V('mistake','mistook','mistaken',   'The crew ___ the signal for a distress call.', 'past', [10,10], 5),
+  V('mistake','mistook','mistaken',   'The signal was ___ for a distress call.',   'part', [10,10], 5),
+  V('shrink','shrank','shrunk',       'The dryer ___ the wool sweater.',           'past', [10,10], 5),
+  V('shrink','shrank','shrunk',       'The wool sweater was ___ by the dryer.',    'part', [10,10], 5)
 ];
 
 /* forge task — the student TYPES the active rewrite. Production, not recognition. */
@@ -2240,7 +2307,21 @@ const FORGE = [
   F('The budget was approved by the board.',         'The board approved the budget.',        2, [8,10], 2),
   F('The findings were questioned by two reviewers.','Two reviewers questioned the findings.', 2, [9,10], 3),
   F('The statue was carved by an unknown artist.',   'An unknown artist carved the statue.',  3, [9,10], 3),
-  F('The policy was overturned by the appeals board.','The appeals board overturned the policy.',3,[9,10],3)
+  F('The policy was overturned by the appeals board.','The appeals board overturned the policy.',3,[9,10],3),
+
+  /* ---- tier 4: two-object passives, the hardest kind to unpick by ear ---- */
+  F('The pigs were given the milk by the farmer.',
+    'The farmer gave the pigs the milk.',                 2, [9,10], 4),
+  F('The winners were awarded scholarships by the foundation.',
+    'The foundation awarded the winners scholarships.',   2, [9,10], 4),
+  F('The tenants were sent a notice by the landlord.',
+    'The landlord sent the tenants a notice.',            2, [9,10], 4),
+
+  /* ---- tier 5 ---- */
+  F('The evidence was presented to the jury by the prosecutor.',
+    'The prosecutor presented the evidence to the jury.', 2, [10,10], 5),
+  F('The findings were withheld from the public by the agency.',
+    'The agency withheld the findings from the public.',  2, [10,10], 5)
 ];
 
 const REVISE = [
@@ -2313,12 +2394,41 @@ const REVISE = [
      'It was concluded that teenagers need later start times.',
      'The district is now reviewing its schedule.'], 2,
     '"It was concluded" is agentless passive doing heavy lifting — concluded by whom, on what evidence? Analytical writing has to attribute: <b>"The researchers concluded that teenagers need later start times."</b>',
-    [9,10], 3)
+    [9,10], 3),
+
+  /* ---- tiers 4 and 5: TWO passives, only one of which should change.
+     Up to here, spotting the passive was the whole job. From here the student
+     has to judge which passive is doing honest work and which one is hiding. ---- */
+  R('Field Report',
+    ['Water samples were collected at three sites along the creek.',
+     'The samples were then dropped by our group on the way back.',
+     'We repeated the test the following week.'], 1,
+    'Two passives, one revision. Sentence 1 should stay as it is: in a procedure the steps matter more than who carried them out. Sentence 2 is different — it names our group and then buries them at the end of a longer, weaker sentence. <b>Our group then dropped the samples on the way back.</b>',
+    [9,10], 4),
+  R('Museum Placard',
+    ['The mask was carved from a single piece of cedar.',
+     'It was donated to the museum by the Whitfield family in 1962.',
+     'Visitors may photograph it without flash.'], 1,
+    'Sentence 1 is a fair passive: nobody knows which carver made the mask, and the object is what the placard is about. Sentence 2 is the one to fix. The donors are the whole point of that sentence, so give them the subject slot: <b>The Whitfield family donated it to the museum in 1962.</b>',
+    [9,10], 4),
+  R('Incident Notice',
+    ['The east stairwell was closed at nine this morning.',
+     'A cracked handrail was reported by a custodian during the morning inspection.',
+     'Repairs are scheduled for Friday.'], 1,
+    'Sentence 1 can stay passive — everyone knows the school closed the stairwell, so naming it adds nothing. Sentence 2 puts the person who actually caught the problem at the very end. <b>A custodian reported a cracked handrail during the morning inspection.</b>',
+    [10,10], 5),
+  R('Company Statement',
+    ['Customer records were stored on an unsecured server.',
+     'The breach was discovered on March 4.',
+     'We have since hired an outside auditor.'], 0,
+    'Sentence 2 is defensible: the date matters more than who noticed. Sentence 1 is the one to fix. Somebody chose to store those records that way, and the passive quietly removes them from their own sentence. <b>We stored customer records on an unsecured server.</b> That is the sentence a company least wants to write, which is exactly why it is the honest one.',
+    [10,10], 5)
 ];
 
 const BANK = { rebuild:REBUILD, classify:CLASSIFY, judgment:JUDGMENT, forge:FORGE, revise:REVISE, verb:VERBS };
 /* -ing form, derived: drop a silent final e, otherwise just add ing */
-function ingForm(base){
+function ingForm(base, explicit){
+  if (explicit) return explicit;
   if (/[^aeiou]e$/.test(base)) return base.slice(0, -1) + 'ing';
   return base + 'ing';
 }
@@ -2340,7 +2450,7 @@ const BANDS = {
         note:'Academic sentences, agentless passive and real judgment calls. This is the core of the standard.' },
   9:  { tier:4, name:'Investigation',shift:1,  speed:0.92, distract:1,
         note:'Formal register, minimal pairs, and rhetorical judgment made at speed.' },
-  10: { tier:5, name:'Front Page',   shift:1,  speed:0.84, distract:2,
+  10: { tier:5, name:'Front Page',   shift:2,  speed:0.84, distract:2,
         note:'The longest subjects, the subtlest traps, the most distractors and the fastest grid.' }
 };
 const BAND_LIST = [6,7,8,9,10];
@@ -2413,17 +2523,17 @@ const MISSIONS = [
   { id:12, title:'Final Protocol', mode:'mixed', tier:3, distract:6, speed:118, scene:'news',
     brief:'Mastery run. Every skill, hardest settings.',
     slots:['classify','classify','rebuild','judgment','rebuild'] },
-  { id:13, title:'Sentence Forge', coach:'forge', mode:'forge', tier:1, distract:0, speed:150, scene:'lab',
+  { id:13, title:'Sentence Forge', coach:'forge', mode:'forge', tier:2, distract:0, speed:150, scene:'lab',
     brief:'No word pellets. Type the active sentence yourself.',
     slots:['forge','forge','forge'] },
-  { id:14, title:'Revision Lab', coach:'revise', mode:'revise', tier:1, distract:0, speed:145, scene:'library',
+  { id:14, title:'Revision Lab', coach:'revise', mode:'revise', tier:2, distract:0, speed:145, scene:'library',
     brief:'A whole paragraph. Find the one sentence that needs rewriting.',
     slots:['revise','revise','revise'] },
   { id:15, title:'The Passive Fog', coach:'fog', mode:'boss', tier:3, distract:4, speed:125, scene:'void',
     boss:true, fog:true,
     brief:'BOSS. The fog hides words the way passive voice hides agents. Push it back.',
     slots:['rebuild','classify','forge','judgment','revise','rebuild'] },
-  { id:16, title:'The Irregular Ward', coach:'verb', mode:'verb', tier:1, distract:0, speed:150, scene:'lab',
+  { id:16, title:'The Irregular Ward', coach:'verb', mode:'verb', tier:3, distract:0, speed:150, scene:'lab',
     brief:'Broke or broken? Five verb forms, five decisions.',
     slots:['verb','verb','verb','verb','verb'] }
 ];
@@ -2442,7 +2552,7 @@ function resolvePool(kind, tier, band){
     const order = [tier - 1, tier + 1, tier - 2, tier + 2];
     for (let i = 0; i < order.length; i++){
       const alt = order[i];
-      if (alt < 1 || alt > 3) continue;
+      if (alt < 1 || alt > 5) continue;
       const a = bank.filter(it => it.tier === alt && inBand(it));
       if (a.length >= 2){ items = a; t = alt; break; }
     }
@@ -2460,6 +2570,9 @@ function taskIndex(){
   if (TASK_INDEX) return TASK_INDEX;
   TASK_INDEX = {};
   Object.keys(BANK).forEach(k => BANK[k].forEach(t => { TASK_INDEX[taskId(t)] = t; }));
+  // Agent Hunt items are derived rather than authored, so index them too or a
+  // missed one can never be named back to the teacher
+  BAND_LIST.forEach(b => allAgentTasks(b).forEach(t => { TASK_INDEX[taskId(t)] = t; }));
   return TASK_INDEX;
 }
 function recordMiss(t){
@@ -2501,7 +2614,7 @@ const planCache = {};
    silently treats them all as the same item. The JSON fallback means a new task
    kind can never quietly break this again. */
 function taskId(t){
-  const key = t.active || t.text || t.context || t.title ||
+  const key = t.active || t.text || t.context || t.title || t.passive ||
               (t.base ? t.base + ':' + t.want : '');
   return t.kind + '|' + (key || JSON.stringify(t).slice(0, 140));
 }
@@ -2511,7 +2624,7 @@ function planFor(band){
   const counters = {};
   const used = {};
   const plan = MISSIONS.map(m => {
-    const tier = clamp(m.tier + cfg.shift, 1, 3);
+    const tier = clamp(m.tier + cfg.shift, 1, 5);
     const tasks = m.slots.map(kind => {
       const res = resolvePool(kind, tier, band);
       // walk forward from this pool's cursor to the first item not already used
@@ -3120,6 +3233,13 @@ function saveClass(){
   writeJSON(CLASS_KEY, classData);
 }
 function applyClassToSave(){
+  // Upgrading from a version that kept the class log inside the profile save:
+  // seed the shared log from it. Without this the teacher's whole class record
+  // is replaced by an empty array the first time the new version opens.
+  if ((!classData.log || !classData.log.length) && Array.isArray(save.log) && save.log.length){
+    classData.log = save.log.slice();
+    writeJSON(CLASS_KEY, classData);
+  }
   save.log = Array.isArray(classData.log) ? classData.log : [];
   TEACHER_SETTINGS.forEach(k => {
     if (classData.settings[k] !== undefined) save.settings[k] = classData.settings[k];
@@ -3196,7 +3316,22 @@ const SFX = (function(){
   }
   function blip(o){
     const c = ac(); if (!c) return;
-    const t0 = c.currentTime + (o.delay || 0);
+    // Sound sits in the hot path: a single non-finite number would throw out of
+    // here and take the eat handler with it. Nothing musical is worth that, so
+    // clamp everything to a sane finite value before it reaches the audio graph.
+    const num = (v, dflt, lo, hi) => {
+      const n = +v;
+      return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+    };
+    o = {
+      f0: num(o.f0, 440, 20, 18000),
+      f1: o.f1 == null ? 0 : num(o.f1, 440, 20, 18000),
+      dur: num(o.dur, 0.12, 0.01, 4),
+      vol: num(o.vol, 0.16, 0.0002, 1),
+      delay: num(o.delay, 0, 0, 5),
+      type: o.type || 'square'
+    };
+    const t0 = c.currentTime + o.delay;
     const osc = c.createOscillator();
     const gain = c.createGain();
     osc.type = o.type || 'square';
@@ -4742,15 +4877,22 @@ function agentFromAgentless(t){
   return { kind:'agent', passive:t.text, agent:AGENT_NONE, subject:subjectOf(t.text),
            named:false, bands:t.bands, tier:t.tier };
 }
-function agentPool(band){
+function allAgentTasks(band){
   const named = REBUILD.filter(t => band >= t.bands[0] && band <= t.bands[1])
                        .map(agentFromRebuild).filter(Boolean);
   const hidden = CLASSIFY.filter(t => band >= t.bands[0] && band <= t.bands[1] &&
                     t.answer === 'passive' && (t.tag === 'agentless' || t.tag === 'accountability'))
                        .map(agentFromAgentless);
+  return named.concat(hidden);
+}
+function agentPool(band){
+  const all = allAgentTasks(band);
+  const named = all.filter(t => t.named), hidden = all.filter(t => !t.named);
   // deliberately mixed: if every item had a named agent, "pick the by-phrase" would work
-  // as a rule of thumb and the agentless case would never get practised
-  return shuffle(named).slice(0, 8).concat(shuffle(hidden).slice(0, 4));
+  // as a rule of thumb and the agentless case would never get practised.
+  // shuffle the combined set too, or the agentless ones always land at the end
+  // and a student learns the position instead of the grammar.
+  return shuffle(shuffle(named).slice(0, 8).concat(shuffle(hidden).slice(0, 4)));
 }
 
 function buildTask(){
@@ -4810,7 +4952,7 @@ function buildTask(){
     const forms = shuffle([
       { txt:task.past, val:'past' },
       { txt:task.part, val:'part' },
-      { txt:ingForm(task.base), val:'ing' }
+      { txt:ingForm(task.base, task.ing), val:'ing' }
     ]);
     G.pellets = placePellets(forms.map(f => makePellet(f.txt, 'gate', { tone:'a', val:f.val })));
     unlockCodex('distract');
@@ -5696,6 +5838,15 @@ function startRun(mode, idx){
               speed: Math.round(160 * BANDS[save.band].speed),
               brief:'No finish line. Speeds up every five answers.',
               tasks:[ randomGauntletTask() ] };
+  }
+
+  // A level with no tasks cannot be played, and half-starting one leaves the
+  // engine reading an undefined task. Refuse it cleanly instead.
+  if (!level || !level.tasks || !level.tasks.length){
+    SFX.deny();
+    alert('There are no sentences available for that mode yet.');
+    show('menu');
+    return;
   }
 
   G.runToken++;
@@ -7424,10 +7575,10 @@ function renderTeacher(){
         '</div>';
       }).join('');
 
-  const agg = { order:0, leftover:0, classify:0, judgment:0, forge:0, revise:0, verb:0, reason:0 };
+  const agg = { order:0, leftover:0, classify:0, judgment:0, forge:0, revise:0, verb:0, reason:0, agent:0 };
   log.forEach(r => { agg.order += r.e_order||0; agg.leftover += r.e_leftover||0; agg.classify += r.e_classify||0;
                      agg.judgment += r.e_judgment||0; agg.forge += r.e_forge||0; agg.revise += r.e_revise||0;
-                     agg.verb += r.e_verb||0; agg.reason += r.e_reason||0; });
+                     agg.verb += r.e_verb||0; agg.reason += r.e_reason||0; agg.agent += r.e_agent||0; });
   const labels = {
     order:    ['Word order in active voice', 'Students grabbed a correct word out of sequence. Re-teach SUBJECT → VERB → OBJECT (Codex entry 3).'],
     leftover: ['Passive leftovers (was / by / participles)', 'Students ate helper verbs, "by," or past participles. Re-teach: passive = to be + past participle (Codex entries 1 and 6).'],
@@ -7436,9 +7587,13 @@ function renderTeacher(){
     forge:    ['Writing an active sentence from scratch', 'Typed rewrites did not match. This is production, not recognition — re-teach the three-step move in Codex entry 11.'],
     revise:   ['Finding the passive sentence in a paragraph', 'Students picked the wrong sentence to revise. Practise reading a paragraph for the odd one out.'],
     verb:     ['Choosing the right verb form', 'Past tense vs. past participle. Drill the "have ___" test: you have broken, not have broke.'],
-    reason:   ['Justifying the voice choice', 'Students picked the right version but could not say why. Re-teach L.8.3.A: every voice choice has a reason.']
+    reason:   ['Justifying the voice choice', 'Students picked the right version but could not say why. Re-teach L.8.3.A: every voice choice has a reason.'],
+    agent:    ['Locating the agent', 'Students could not say who was performing the action, or treated the grammatical subject as the doer. Re-teach step 1 of The Move and the agentless passive (Codex entries 1 and 7).']
   };
-  const total = agg.order + agg.leftover + agg.classify + agg.judgment;
+  // sum EVERY error type: totalling only four of them meant a class that struggled
+  // with verb forms, writing, revision, reasoning or agents saw "no misses recorded",
+  // and the percentages were computed against a partial total
+  const total = Object.keys(agg).reduce((n, k) => n + agg[k], 0);
   $('#teacher-errors').innerHTML = total === 0
     ? '<span class="muted">No misses recorded yet.</span>'
     : Object.keys(agg).sort((a, b) => agg[b] - agg[a]).filter(k => agg[k] > 0).map(k => {
@@ -7612,7 +7767,8 @@ function printReport(name){
 function toCSV(){
   const head = ['Student','Date','Time','Tier','Tier Name','Grade Band','Game Speed','Mission','Mission Name','Task Type','Score','Stars',
                 'Correct','Misses','Accuracy %','Skill Drills','Seconds','Result',
-                'Err: Word Order','Err: Passive Leftovers','Err: Active/Passive ID','Err: Judgment','Err: Forge','Err: Revise','Err: Verb Form','Err: Reasoning',
+                'Err: Word Order','Err: Passive Leftovers','Err: Active/Passive ID','Err: Judgment','Err: Forge','Err: Revise','Err: Verb Form','Err: Reasoning','Err: Agent',
+                'Locate Agent Correct','Locate Agent Attempted',
                 'Identify Correct','Identify Attempted','Convert Correct','Convert Attempted',
                 'Write Correct','Write Attempted','Purpose Correct','Purpose Attempted',
                 'Revise Correct','Revise Attempted'];
@@ -7629,7 +7785,8 @@ function toCSV(){
     const bd = r.band || 8;
     return [r.student, d.toLocaleDateString(), d.toLocaleTimeString(), 'T' + tierNum(bd), tierName(bd), bd, r.pace || 'medium', r.levelId || r.mode, r.level, r.mode,
             r.score, r.stars || 0, r.correct, r.errors, r.acc, r.drills || 0, r.time, r.result,
-            r.e_order||0, r.e_leftover||0, r.e_classify||0, r.e_judgment||0, r.e_forge||0, r.e_revise||0, r.e_verb||0, r.e_reason||0,
+            r.e_order||0, r.e_leftover||0, r.e_classify||0, r.e_judgment||0, r.e_forge||0, r.e_revise||0, r.e_verb||0, r.e_reason||0, r.e_agent||0,
+            sk('agent','c'), sk('agent','a'),
             sk('classify','c'), sk('classify','a'), sk('rebuild','c'), sk('rebuild','a'),
             sk('forge','c'), sk('forge','a'), sk('judgment','c'), sk('judgment','a'),
             sk('revise','c'), sk('revise','a')].map(q).join(',');
@@ -7672,7 +7829,7 @@ function keyRows(L){
     if (t.kind === 'verb'){
       return { q: (i+1) + '. VERB FORM — "' + t.frame + '"  (base verb: ' + t.base + ')',
                a: 'Answer: ' + verbAnswer(t) + (t.want === 'part' ? '  [past participle — passive]' : '  [past tense — active]'),
-               w: 'Past tense: ' + t.past + ' · Past participle: ' + t.part + ' · Distractor: ' + ingForm(t.base) +
+               w: 'Past tense: ' + t.past + ' · Past participle: ' + t.part + ' · Distractor: ' + ingForm(t.base, t.ing) +
                   '. ' + (t.want === 'part'
                     ? 'The frame contains a "to be" helper, so the blank takes the past participle.'
                     : 'No "to be" helper, so the agent takes the plain past tense.') };
@@ -7798,6 +7955,7 @@ function logAttempt(success, acc, stars){
     e_revise: G.errTypes.revise || 0,
     e_verb: G.errTypes.verb || 0,
     e_reason: G.errTypes.reason || 0,
+    e_agent: G.errTypes.agent || 0,
     missed: (G.missedThisRun || []).slice(0, 12),
     skills: JSON.parse(JSON.stringify(G.skill || {}))
   });
