@@ -1508,6 +1508,7 @@ footer b{color:var(--dim)}
     <div class="panel">
       <h2>The Case <span class="chip violet" id="case-count">0 / 0</span></h2>
       <p class="muted tiny">Everything you have collected, in one place. Greyed-out slots are still out there.</p>
+      <p class="tiny" id="longest-stat" style="margin:0 0 10px;color:var(--dim)"></p>
       <div class="stickercase" id="stickercase"></div>
     </div>
     <div class="panel tight">
@@ -3652,10 +3653,89 @@ function cellOnSnake(x, y){
   for (let i = 0; i < G.snake.length; i++) if (G.snake[i].x === x && G.snake[i].y === y) return true;
   return false;
 }
+/* How long Noodle is allowed to get. Higher tiers earn a longer snake, so
+   answering well genuinely crowds your own board — but the ceiling is a
+   fraction of the CURRENT grid, which is smaller on a phone than on a laptop,
+   and it is deliberately well short of the point where the board jams. */
+function snakeCap(){
+  const cells = Math.max(1, COLS * ROWS);
+  const t = tierNum(save.band);
+  let frac = [0.05, 0.07, 0.09, 0.11, 0.13][t - 1] || 0.09;
+  // Editor's Desk is a sixty-second fluency drill against fixed walls. Length
+  // there would only get in the way of the thing it is measuring.
+  if (G.mode === 'sort') frac = Math.min(frac, 0.04);
+  return Math.max(8, Math.round(cells * frac));
+}
+/* Growth per correct answer scales with the tier for the same reason. */
+function growUnit(base){
+  const t = tierNum(save.band);
+  return Math.max(1, Math.round(base * (0.8 + t * 0.25)));
+}
+
+/* Every cell the head can actually reach, walking only through free squares.
+   Pellets are placed inside this set, so the board can never ask a student to
+   eat something they cannot get to. */
+function reachableSet(){
+  const occupied = {};
+  // the tail vacates as the snake moves, so treat the last segment as free
+  for (let i = 0; i < G.snake.length - 1; i++) occupied[G.snake[i].x + ',' + G.snake[i].y] = 1;
+  const head = G.snake[0] || { x:1, y:1 };
+  const seen = {}, out = {};
+  const wrap = !!save.settings.wrap;
+  const q = [[head.x, head.y]];
+  seen[head.x + ',' + head.y] = 1;
+  const D = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (q.length){
+    const c = q.shift();
+    out[c[0] + ',' + c[1]] = 1;
+    for (let d = 0; d < 4; d++){
+      let nx = c[0] + D[d][0], ny = c[1] + D[d][1];
+      if (wrap){
+        if (nx < 0) nx = COLS - 1; else if (nx >= COLS) nx = 0;
+        if (ny < 0) ny = ROWS - 1; else if (ny >= ROWS) ny = 0;
+      } else if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      const k = nx + ',' + ny;
+      if (seen[k] || occupied[k]) continue;
+      seen[k] = 1; q.push([nx, ny]);
+    }
+  }
+  return out;
+}
+
+/* Deterministic fallback for a crowded board: walk the grid for a run of
+   reachable cells wide enough to hold the word and clear of what is already
+   placed. Random sampling can miss such a spot; this cannot. */
+function findReachableSlot(reach, wc, placed){
+  for (let y = 1; y < ROWS - 1; y++){
+    for (let x = 1; x + wc <= COLS - 1; x++){
+      let good = true;
+      for (let k = 0; k < wc && good; k++){
+        if (!reach[(x + k) + ',' + y]) good = false;
+        if (cellOnSnake(x + k, y)) good = false;
+      }
+      if (!good) continue;
+      const probe = { cx:x, cy:y, wc:wc };
+      for (let i = 0; i < placed.length && good; i++) if (pelletConflict(probe, placed[i])) good = false;
+      if (good) return { cx:x, cy:y };
+    }
+  }
+  return null;
+}
+
 function placePellets(list){
   const placed = [];
   const head = G.snake[0] || { x:2, y:2 };
   const inst = labLvl('instinct');
+  // If Noodle has coiled up enough to strand part of the board, shed tail
+  // segments until there is room again. Length is meant to raise the
+  // difficulty, never to make a word impossible to get to.
+  let reach = reachableSet();
+  let guard = 0;
+  const needed = list.reduce((n, p) => n + Math.max(1, p.wc || 1), 0) + 6;
+  while (Object.keys(reach).length < needed && G.snake.length > 6 && guard++ < 200){
+    G.snake.pop();
+    reach = reachableSet();
+  }
   list.forEach(p => {
     const biased = inst > 0 && p.type === 'word' && p.idx === 0;
     let best = null, bestD = 1e9, found = 0;
@@ -3666,6 +3746,11 @@ function placePellets(list){
       p.cy = 1 + rnd(ROWS - 2);
       let bad = false;
       for (let i = 0; i < placed.length && !bad; i++) if (pelletConflict(p, placed[i])) bad = true;
+      // reachability is checked even when relaxing: a pellet the head cannot
+      // walk to is never acceptable, however cramped the board has become
+      for (let x = p.cx; x < p.cx + p.wc && !bad; x++){
+        if (!reach[x + ',' + p.cy]) bad = true;
+      }
       if (!bad && !relax){
         for (let x = p.cx; x < p.cx + p.wc && !bad; x++){
           if (cellOnSnake(x, p.cy)) bad = true;
@@ -3684,6 +3769,18 @@ function placePellets(list){
       }
     }
     if (biased && best){ p.cx = best.cx; p.cy = best.cy; }
+    if (!ok){
+      // random tries were exhausted — never leave the pellet wherever the last
+      // failed guess landed, because that is how a word ends up unreachable
+      let slot = findReachableSlot(reach, p.wc, placed);
+      let shedGuard = 0;
+      while (!slot && G.snake.length > 6 && shedGuard++ < 200){
+        G.snake.pop();
+        reach = reachableSet();
+        slot = findReachableSlot(reach, p.wc, placed);
+      }
+      if (slot){ p.cx = slot.cx; p.cy = slot.cy; }
+    }
     placed.push(p);
   });
   return placed;
@@ -3865,8 +3962,14 @@ function step(){
   if (G.trace.length < 1500) G.trace.push({ x:hx, y:hy, e:0 });
   G.snake.unshift({ x:hx, y:hy, role: G.grow > 0 ? G.growRole : null, word:null });
   if (!save.settings.calm) trailPuff();   // calm mode keeps the board still
-  if (G.grow > 0){ G.grow--; if (G.grow === 0) G.growRole = null; }
-  else G.snake.pop();
+  if (G.grow > 0 && G.snake.length < snakeCap()){
+    G.grow--; if (G.grow === 0) G.growRole = null;
+  } else {
+    // at the ceiling, drop any pending growth rather than banking it forever
+    if (G.grow > 0){ G.grow = 0; G.growRole = null; }
+    G.snake.pop();
+  }
+  if (G.snake.length > (G.maxLen || 0)) G.maxLen = G.snake.length;
 
   if (G.power && G.power.x === hx && G.power.y === hy) collectPower();
   const p = pelletAt(hx, hy);
@@ -4931,6 +5034,20 @@ function buildTask(){
         p2.cx = Math.max(0, COLS - p2.wc); p2.cy = y;
         list.push(a, p2);
       }
+      // these wall gates are positioned directly rather than through
+      // placePellets, so they carry none of its reachability protection.
+      // A student must always be able to get to at least one of each.
+      let reach = reachableSet();
+      const gateReachable = g => {
+        for (let x = g.cx; x < g.cx + g.wc; x++) if (reach[x + ',' + g.cy]) return true;
+        return false;
+      };
+      const canReach = v => list.filter(g => g.val === v).some(gateReachable);
+      let deskGuard = 0;
+      while ((!canReach('active') || !canReach('passive')) && G.snake.length > 5 && deskGuard++ < 200){
+        G.snake.pop();
+        reach = reachableSet();
+      }
       G.pellets = list;
       unlockCodex('classify');
       if (task.tag) unlockCodex(task.tag);
@@ -5071,7 +5188,7 @@ function correctWord(p, px, py){
   // the word rides the snake from here on, in its role color
   G.snake[0].role = p.role;
   G.snake[0].word = p.text;
-  G.grow += 3;
+  G.grow += growUnit(3);
   G.growRole = p.role;
 
   G.pellets.splice(G.pellets.indexOf(p), 1);
@@ -5197,7 +5314,7 @@ function gateAnswer(right, p, px, py){
     const gain = Math.round((isClassify ? 160 : task.kind === 'revise' ? 240 : task.kind === 'verb' ? 150 : 220) * mult * appetiteMult() * x2);
     G.score += gain;
     G.bytes += Math.round((isClassify ? 20 : 28) * bytesMult() * mult);
-    G.grow += 4;
+    G.grow += growUnit(4);
     SFX.sentence();
     burst(px, py, '#a6ff3d', 22);
     floatText(px, py, '+' + gain + (mult > 1 ? ' \u00d7' + mult : ''), '#a6ff3d');
@@ -5409,7 +5526,7 @@ function submitForge(tapped){
     const gain = Math.round((G.forgeHinted ? 220 : 320) * mult * appetiteMult());
     G.score += gain;
     G.bytes += Math.round(38 * bytesMult() * mult);
-    G.grow += 5;
+    G.grow += growUnit(5);
     pushFog(3);
     SFX.surge();
     burst(px, py, '#a6ff3d', 30);
@@ -5482,6 +5599,7 @@ function sortAnswer(right, task, px, py){
   const y = Math.floor(ROWS / 2), x = Math.floor(COLS / 2);
   G.snake = [{x:x,y:y},{x:x-1,y:y},{x:x-2,y:y}];
   G.dir = { x:1, y:0 }; G.dirQueue = []; G.grow = 0;
+  G.maxLen = G.snake.length;
   G.sorted = (G.sorted || 0) + 1;
   G.level.tasks.push(randomSortTask());
   G.taskIdx++;
@@ -6055,6 +6173,11 @@ function endLevel(success, reason){
 
   updateHUD();
   save.bytes += G.bytes;
+  // the longest Noodle has ever been: a number that only moves when a student
+  // strings correct answers together, so it cannot be farmed by wandering.
+  // remember the old best first, or the debrief can never say "new best"
+  G.prevLongest = save.stats.longestSnake || 0;
+  if ((G.maxLen || 0) > G.prevLongest) save.stats.longestSnake = G.maxLen;
 
   if (success && G.mode === 'campaign'){
     const key = bestKey(G.level.id);
@@ -6125,6 +6248,10 @@ function endLevel(success, reason){
       '<div class="k">Misses</div><div class="v ' + (G.errors ? 'neg' : '') + '">' + G.errors + '</div>' +
       '<div class="k">Accuracy</div><div class="v">' + acc + '%</div>' +
       '<div class="k">Best streak</div><div class="v">' + G.bestStreak + '</div>' +
+      '<div class="k">Longest ' + SNAKE_NAME + '</div><div class="v' +
+        ((G.maxLen || 0) > (G.prevLongest || 0) ? ' pos' : '') + '">' + (G.maxLen || 3) +
+        ' segments' + ((G.maxLen || 0) > (G.prevLongest || 0)
+          ? ' &mdash; new best' : ' (best ' + (save.stats.longestSnake || 0) + ')') + '</div>' +
       (G.drills ? '<div class="k">Skill drills</div><div class="v">' + G.drills + '</div>' : '') +
       (G.napSeconds > 1 ? '<div class="k">Time ' + SNAKE_NAME + ' spent napping</div><div class="v neg">' + G.napSeconds.toFixed(1) + 's</div>' : '') +
       '<div class="k">Peak momentum</div><div class="v pos">×' + (G.peakMult || 1) + '</div>' +
@@ -6237,6 +6364,10 @@ function diagramHTML(task, progress){
   };
   const doneActor = groups.actor.length && groups.actor.every(x => x.done);
   const doneVerb  = groups.verb.length  && groups.verb.every(x => x.done);
+  // At the lowest rung the template comes away entirely: the student has to
+  // hold SUBJECT -> VERB -> OBJECT in their head instead of reading it off the
+  // screen. The pattern is still one H keypress away in The Move.
+  if (scaffoldLevel() <= 1) return '';
   return '<div class="diagram">' +
     slot('actor', 'Subject') +
     '<span class="darrow' + (doneActor ? ' on' : '') + '">&rarr;</span>' +
@@ -7468,6 +7599,14 @@ function renderCase(){
   el.innerHTML = html;
   const c = $('#case-count');
   if (c) c.textContent = got + ' / ' + total;
+  const ln = $('#longest-stat');
+  if (ln){
+    const best = save.stats.longestSnake || 0;
+    ln.innerHTML = best
+      ? 'Longest ' + SNAKE_NAME + ' so far: <b style="color:var(--tierink,var(--cyan))">' + best +
+        ' segments</b>. He only grows on correct answers, so that number is a record of what you got right.'
+      : 'Longest ' + SNAKE_NAME + ' so far: <b>&mdash;</b>. He grows on correct answers, so play a mission and this fills in.';
+  }
 }
 function renderTrophies(){
   renderCase();
